@@ -38,7 +38,7 @@ with AIRR-formatted files from the TRUST4 analysis.
 ### Read one file and check its content
 
 ```{r, echo=TRUE, warning=FALSE, message=FALSE}
-where_airr_files <- "~/Documents/teaching/WTSI2024/TCR_BCR/bulk_TCR/airr/"
+where_airr_files <- "data/"
   list.files(where_airr_files)  
   one_airr_file <- read_tsv(file.path(where_airr_files, "TRUST_3057_S6_airr.tsv.gz" )) #we can directly read in a .gz file with decompressing
 ```
