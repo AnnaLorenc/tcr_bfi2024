@@ -6,59 +6,85 @@ editor_options:
     wrap: 72
 ---
 
-```{r}
+```{r, echo=FALSE}
+
 library(tidyverse)
 
 ```
 
-In this exercise, we'll analyse mice data from {}. This study describes
-how the mutations in a previously not implicated in any immune functions
-gene, Nudcd3, lead to inborn deficiency errors and Omenn syndrome, as
-this gene turns out to be crucial for V(D)J recombination. The authors
-used a mouse model of a mutation in under-researched gene, *Nudcd3*.
-Mice with homozygous mutation were compared with their wild type
-litter-mates. Here we'll analyse TCR sequences of these mice. This study
-was done as bulk sequencing, after 5'RACE amplification of TRB, TRA
-Takara Smarter kit. BCR libraries were processed at the same time and
-sequenced together.
+#### Data
 
-Questions: How mutation influences recombination: usage of specific V/J
-genes presence of nonproductive sequences length of the TRA/TRB chains
+In this exercise, we'll analyse data from *Chen R, Lukianova E, van der
+Loeff IS et al.*, "NUDCD3 deficiency disrupts V(D)J recombination to
+cause SCID and Omenn syndrome", *Sci Immunol. 2024*.
 
-How it influences the resulting repertoire: its diversity presence of
-'special' TRAs (NKT cells, MAIT cells)
+This study describes how the missense mutations in a gene Nudcd3,
+previously not implicated in any immune functions, lead to inborn
+deficiency errors and Omenn syndrome, as this gene turns out to be
+crucial for V(D)J recombination.
 
-# From FASTQ files to clones summary
+The authors used a mouse model: mice with homozygous mutation were
+compared with their wild type litter-mates. Here, we'll analyse TCR
+sequences of these mice.
 
-We won't be performing this step, as it is computationally expensive.
-Irrespective of software used, it involves aligning the sequencing reads
-to the reference V(D)J genes and assembly of receptors. We will proceed
-with AIRR-formatted files from the TRUST4 analysis.
+This study was done as bulk sequencing, after 5'RACE amplification of
+TRB, TRA Takara Smarter kit.
 
-### Read one file and check its content
+The raw sequencing data can be downloaded from European Nucleotide
+Archive (PRJEB55545). Authors reconstructed TCR sequences with MIXCR,
+we'll work with TCRs reconstructed by TRUST4.
+
+#### Biological questions
+
+-   Does mutation influence recombination: usage of specific V/J genes,
+    presence of nonproductive sequences, length of the TRA/TRB chains?
+
+-   How it influences the resulting repertoire: its diversity presence
+    of 'special' TRAs (NKT cells, MAIT cells)
+
+To answer them, we'll look on the TRA chains.
+
+### Analysis
+
+## From FASTQ files to clones summary
+
+We won't be performing this step, as it is time consuming. Irrespective
+of software used, it involves aligning the sequencing reads to the
+reference V(D)J genes and assembly of receptors. We will proceed with
+AIRR-formatted files from the TRUST4 analysis.
+
+### Read one file in and check its content
+
+Each file is data from one mouse.
 
 ```{r, echo=TRUE, warning=FALSE, message=FALSE}
-where_airr_files <- "data/"
-  list.files(where_airr_files)  
-  one_airr_file <- read_tsv(file.path(where_airr_files, "TRUST_3057_S6_airr.tsv.gz" )) #we can directly read in a .gz file with decompressing
-```
 
-Have a look on the content of the file
+where_airr_files <- "~/Documents/teaching/WTSI2024/TCR_BCR/bulk_exercise/data/"
 
-```{r}
-  one_airr_file 
-  #how many rows in this table? #nrow()
-  #check how many unique sequences are in this table? # $, unique(), length()
-  #what type of sequences? # $, unique()
+list.files(where_airr_files)  
+
+one_airr_file <- read_tsv(file.path(where_airr_files, "TRUST_3057_S6_airr.tsv.gz" )) #  directly read a .gz file without first decompressing
 
 ```
+
+Check the content of the file:
+
+```{r 'check_the_file_content'}
+one_airr_file
+#How many rows in this table? # nrow()
+#Check how many unique sequences (sequence_id) are in this table? # $, unique(), length()
+#What type of sequences? The v_gene names can give a hint. # $, unique()
+
+```
+
+### Take only the rows of interest and simplify the data
 
 Let's get the rows we are interested in: with TRA chain only.
 
-```{r}
-#we can recognise TRA chain by the name of the v_call:
-one_airr_file_tra <- one_airr_file |>
-  filter(grepl(pat = "TRA", v_call))
+```{r 'take_only_TRAs'}
+#We can recognise TRA chain by the name of the v_call:
+one_airr_file_tra <- one_airr_file |>    
+  filter(grepl(pat = "TRA", x = v_call))  # filter() applies logical conditions and returns only rows fulfilling all of them
 
 #Are these unique sequences? Compare number of rows with the number of unique sequences.
 
@@ -66,43 +92,51 @@ one_airr_file_tra <- one_airr_file |>
 
 ```
 
-There are slightly different versions of assemblies - let's use the best
-one (with highest consensus_count)
+The same sequence id is listed in several rows. These are slightly
+different versions of assemblies - let's use the best one (with highest
+consensus_count):
 
-```{r}
-#group by sequence id, from each group get a row with highest value of the column consensus_count
+```{r 'get_best_assembly'}
+
+#Group by sequence id - the following operations will be done per group
+#From each group get a row with highest value of the column consensus_count
+
 one_airr_file_tra_short <- one_airr_file_tra |>
   group_by(sequence_id)|>
-  slice_max(consensus_count, n=1, with_ties=FALSE)
+  slice_max(consensus_count, n=1, with_ties=FALSE) # slice_max will take from each group 1 row with highest consensus_count value 
 
-#check whether now one sequence_id-one row
+#check whether now one sequence_id corresponds to one row
 
 
 ```
 
 Let's also simplify the data: add columns v_gene, j_gene with v and j
-segment assigned on gene level
+assigned on gene level rather than allele level:
 
-```{r}
-#look on all present V, J segment assignements in v_call/j_call with table() or unque()
+```{r 'simplify_genes'}
+#Look on all present V, J segment assignments in v_call/j_call with table() or unque()
 
 
-#add columns with gene-level assignement
+#Add columns with gene-level assignement
 one_airr_file_tra_short_vj <- one_airr_file_tra_short |>
-      mutate(v_gene=gsub(pat="\\*.*", rep="", v_call),
-            j_gene=gsub(pat="\\*.*", rep="", j_call))
+  mutate(v_gene=gsub(pat="\\*.*", rep="", x = v_call),  #adding columns with mutate(), substituting text
+         j_gene=gsub(pat="\\*.*", rep="", x = j_call))
 
 
-#compare with the content of v_gene/j_gene
+#Compare with the content of v_call/j_call  with v_gene/j_gene
+# $, unique()
 
 
 ```
 
-Now summarise the table: compute j_gene usage as fraction of the total
-repertoire
+### Compute V and J gene frequencies
 
-```{r}
-one_airr_file_tra_short_vj_sum <- one_airr_file_tra_short_vj %>%
+Now summarise the table: compute j_gene usage as fraction of the total
+repertoire:
+
+```{r 'compute_j_frequencies'}
+
+one_airr_file_tra_short_j_sum <- one_airr_file_tra_short_vj %>%  # In the following code, I will use more of the tidyverse-specific pipe, %>% instead of |> 
   group_by(j_gene)%>%
   summarise(N=n())%>%
   ungroup()%>%
@@ -111,38 +145,43 @@ one_airr_file_tra_short_vj_sum <- one_airr_file_tra_short_vj %>%
 
 ```
 
-We could also chain it all together:
+We could also chain all operations from the read-in file together:
 
-```{r}
-one_airr_file_tra_short_vj_sum <- one_airr_file |>
+```{r 'j_all_in_a_chain'}
+
+one_airr_file_tra_short_j_sum <- one_airr_file |>
   filter(grepl(pat = "TRA", v_call)) |>
   group_by(sequence_id)|>
   slice_max(consensus_count, n=1, with_ties=FALSE) |>
-      mutate(v_gene=gsub(pat="\\*.*", rep="", v_call),
-            j_gene=gsub(pat="\\*.*", rep="", j_call)) |>
-   group_by(j_gene) |>
+  mutate(v_gene=gsub(pat="\\*.*", rep="", v_call),
+         j_gene=gsub(pat="\\*.*", rep="", j_call)) |>
+  group_by(j_gene) |>
   summarise(N=n()) |>
   ungroup() |>
   mutate(j_freq=N/sum(N))
 
-#bonus: remove non-productive sequences
+```
+
+Now obtain v gene frequencies:
+
+```{r 'v_all_in_a_chain'}
 
 ```
 
-We can change (improve?) it a bit: use only productive sequences
+# BONUS We can change (improve?) it a bit: use only productive sequences
 
 ```{r}
-
+#bonus: remove non-productive sequences (you should do it at the very beginning)
 ```
 
-## Processing all files
+### Process all files in one go
 
 With a loop (via `for(){}` or `lapply()`) we can run the workflow above
-for all samples
+for all samples. Let's get samples names first:
 
-```{r}
+```{r get_samples_names}
 
-
+#Manual
 samples <- c("523_S1",
              "3058_S5",
              "7584_S9",
@@ -152,54 +191,61 @@ samples <- c("523_S1",
              "405_S4",
              "520_S2")
 
+#Lazy one
 samples <- list.files(where_airr_files)%>%
-  grep(pat="^TRU", value=T)%>%
+  grep(pat="^TRU", value=TRUE)%>% #grep looks for a string and returns the string which matched
   gsub(pat="TRUST_|_airr.tsv.gz", rep="")
 
+```
 
+```{r for_loop}
 #with for loop, initiate with an empty loop:
-list_of_airr_tables <-list()
+list_of_airr_tables_with_j_freq <-list()
 
 for(samplename in samples){
   print(samplename)
   filename <- paste0("TRUST_",samplename, "_airr.tsv.gz")
   one_airr_file <- file.path(where_airr_files,  filename )%>%
     read_tsv()
-    
-  result <- one_airr_file |>
-  filter(grepl(pat = "TRA", v_call)) |>
-  group_by(sequence_id)|>
-  slice_max(consensus_count, n=1, with_ties=FALSE) |>
-      mutate(v_gene=gsub(pat="\\*.*", rep="", v_call),
-            j_gene=gsub(pat="\\*.*", rep="", j_call)) |>
-   group_by(j_gene) |>
-  summarise(N=n()) |>
-  ungroup() |>
-  mutate(j_freq=N/sum(N))
   
-  list_of_airr_tables[[samplename]] <- result
+  result <- one_airr_file |>
+    filter(grepl(pat = "TRA", v_call)) |>
+    group_by(sequence_id)|>
+    slice_max(consensus_count, n=1, with_ties=FALSE) |>
+    mutate(v_gene=gsub(pat="\\*.*", rep="", v_call),
+           j_gene=gsub(pat="\\*.*", rep="", j_call)) |>
+    group_by(j_gene) |>
+    summarise(N=n()) |>
+    ungroup() |>
+    mutate(j_freq=N/sum(N))
+  
+  list_of_airr_tables_with_j_freq[[samplename]] <- result
 }
-glimpse(list_of_airr_tables)
+
+#check the output
+glimpse(list_of_airr_tables_with_j_freq)
+
 ```
 
-```{r}
+```{r EXTRA}
 
 list_of_airr_tables_via_lapply <- lapply(samples, function(samplename){
-    print(samplename)
+  print(samplename)
+  
   filename <- paste0("TRUST_",samplename, "_airr.tsv.gz")
   one_airr_file <- file.path(where_airr_files,  filename )%>%
     read_tsv()
   
   result <- one_airr_file |>
-  filter(grepl(pat = "TRA", v_call)) |>
-  group_by(sequence_id)|>
-  slice_max(consensus_count, n=1, with_ties=FALSE) |>
-      mutate(v_gene=gsub(pat="\\*.*", rep="", v_call),
-            j_gene=gsub(pat="\\*.*", rep="", j_call)) |>
-   group_by(j_gene) |>
-  summarise(N=n()) |>
-  ungroup() |>
-  mutate(j_freq=N/sum(N))
+    filter(grepl(pat = "TRA", v_call)) |>
+    group_by(sequence_id)|>
+    slice_max(consensus_count, n=1, with_ties=FALSE) |>
+    mutate(v_gene=gsub(pat="\\*.*", rep="", v_call),
+           j_gene=gsub(pat="\\*.*", rep="", j_call)) |>
+    group_by(j_gene) |>
+    summarise(N=n()) |>
+    ungroup() |>
+    mutate(j_freq=N/sum(N))
   return(result)
 })
 
@@ -210,47 +256,62 @@ names(list_of_airr_tables_via_lapply) <- samples
 We can join the tibbles in a list into one big table, to have all
 samples together
 
-```{r}
-airr_tables <- list_of_airr_tables |>
+```{r one_table_all_samples}
+
+airr_tables_j_freq <- list_of_airr_tables_with_j_freq %>%
   bind_rows(.id="sample")
 
 ```
 
-## Experimental metadata
+### Add experimental metadata
 
 To compare mutant and WT samples, we need to add the genotype
 information. We'll prepare a tibble with this data and join it with the
 `airr_tables`
 
-```{r}
+```{r get_metadata}
+
 sample_metadata <-tibble(
-  sample=samples%>%
-  mutate(sample_type=case_when(sample%in%c("523_S1","408_S3","3058_S5","3531_S7","7584_S9")~"WT",
+  sample = samples) %>%
+    mutate(sample_type = case_when(sample%in%c("523_S1","408_S3","3058_S5","3531_S7","7584_S9")~"WT",
                                  sample%in%c("7581_S10","3538_S8","3057_S6","405_S4", "520_S2")~"mut"))
-
-
-sample_metadata 
+  
+  
+  sample_metadata 
+  
+  #usually we rather read metadata from an external file (csv or even xls)
 ```
 
-```{r}
-#Joining two tables by a common field. All rows from the first table are included. See also right_join, inner_join
+```{r add_metadata}
+#Joining two tables by a common field. All rows from the first table are included. See also right_join(), inner_join() for other versions
 
-airr_tables <- left_join(airr_tables, sample_metadata, by=c("sample"="sample"))
+airr_tables_j_freq <- left_join(airr_tables_j_freq, sample_metadata, by=c("sample"="sample"))
 
 ```
 
-## J gene usage
+### Plot J gene usage
 
-```{r}
+Plot usage of J genes as boxplots (grouping by genotype)
 
+```{r plot_j_boxplot}
 
-traj_boxplots <- airr_tables%>%
+#plot j genes frequencies
+airr_tables_j_freq%>%
   ggplot(aes( y=j_freq, x=j_gene, fill=sample_type, col=sample_type))+
   geom_boxplot()
 
+#assign plot to an object for further work
+traj_boxplots <- airr_tables_j_freq%>%
+  ggplot(aes( y=j_freq, x=j_gene, fill=sample_type, col=sample_type))+
+  geom_boxplot()
+
+
+```
+
+```{r plot_embelishments}
+
 traj_boxplots +
-  coord_flip()+
-  theme_bw()
+  coord_flip()
 
 
 traj_boxplots +
@@ -259,33 +320,38 @@ traj_boxplots +
 
 ```
 
-There seems to be some pattern here, however the J genes on the plot are
-not ordered according to their physical location in the locus. Let's
-correct this. We will get the locus coordinates from
-[IMGT]("https://www.imgt.org/IMGTrepertoire/index.php?section=LocusGenes&repertoire=GenePositions&species=mouse&group=TRA")
+There seems to be some pattern here!
 
-```{r}
+#### Extra
+
+We can see the pattern, however the J genes on the plot are not ordered
+according to their physical location in the locus. Let's correct this.
+We will get the locus coordinates from
+[IMGT](%22https://www.imgt.org/IMGTrepertoire/index.php?section=LocusGenes&repertoire=GenePositions&species=mouse&group=TRA%22).
+We'll use the library rvest from gettingt the data from a HTML file.
+
+```{r scrap_website}
+
 library(rvest)
 
 webpage <- read_html("https://www.imgt.org/IMGTrepertoire/index.php?section=LocusGenes&repertoire=GenePositions&species=mouse&group=TRA")
 tbls <- html_nodes(webpage, "table")
 
 locus_table <- tbls[[1]]%>%
-     html_table(fill = TRUE)
+html_table(fill = TRUE)
 
 #split columns,change data to numeric
 locus_table <- locus_table%>%
-  separate(., col="Gene positions in sequence", sep = "\\.\\.",into=c("start","end"))%>%
-  mutate(start=as.integer(start), end=as.integer(end))%>%select(`IMGT Gene`, start, end)%>%
-  arrange(start)
-
-
+separate(., col="Gene positions in sequence", sep = "\\.\\.",into=c("start","end"))%>%
+mutate(start=as.integer(start), end=as.integer(end))%>%select(`IMGT Gene`, start, end)%>%
+arrange(start)
 
 ```
 
-Let's add gene start info to the frequencies table to order it according to locus:
+To order frequencies table according to locus, add gene start info:
 
-```{r}
+```{r add_gene_start}
+
 airr_tables_ordered <- airr_tables%>%
   left_join(.,locus_table%>%select("IMGT Gene", "start"), by=c("j_gene"="IMGT Gene") )
 
@@ -297,40 +363,51 @@ airr_tables_ordered %>%
 
 ```
 
+### Diversity
 
+Does the changed use of J genes and V genes changed diversity of the
+CDR3s? In other words: are there bigger/more expanded clones in the
+mutant mice? For the sake of this exercise we will make here a strong
+assumption that RNA=DNA (in this data expression intensity is confounded
+with the number of clones) We can quantify it with the commonly used
+diversity indices. They are used in ecology and we'll access it via the
+package
+[vegan](https://cran.r-project.org/web/packages/vegan/vignettes/diversity-vegan.pdf)
 
-## Diversity
+As previously, let's try it out on one file.
 
-Does the changed use of J genes and V genes changed diversity of the CDR3s? In other words: are there bigger/more expanded clones in the mutant mice?
-For the sake of this exercise we will make here a strong assumption that RNA=DNA (in this data expression intensity is confounded with the number of clones)
-We can quantify it with the commonly used diversity indices
+```{r 'group_by_CDR3, attempt1'}
+#How many cells with the same clonotypes? Identify the problem
 
-
-Let's try it out on one file. 
-```{r}
-#How many clones with the same clonotypes? Identify the problem
 one_airr_file_tra_short_vj%>%
-  group_by(junction_aa)%>%
-  summarise(N=n())%>%
-  arrange(desc(N))
+  group_by(junction_aa)%>% #group by aminoacid sequence of CDR3  
+  summarise(N=n())%>% #count how often  each CDR3 was found
+  arrange(desc(N)) #sort from biggest to smallest clone
 
- summary(one_airr_file_tra)
- 
-is.na(one_airr_file_tra$junction_aa)%>%
+summary(one_airr_file_tra)
+
+is.na(one_airr_file_tra$junction_aa)%>% #output is a vector with one elemnt for each row, let's count values with table()
   table()
+
+
+
 ```
 
-We need to remove rows where CDR3 is not known. Think about the first part of this exercise -we have
-```{r}
+We need to remove rows where CDR3 is not known. Think about the first
+part of this exercise -we have
+
+```{r 'group_by_CDR3, attempt2'}
+
 clones <- one_airr_file_tra_short_vj%>%
-  filter(!is.na(junction_aa))%>%
+#add here a missing line, removing rows with NA in junction_aa
   group_by(junction_aa)%>%
   summarise(N=n())%>%
   arrange(desc(N))
+
+
 ```
 
-
-```{r}
+```{r 'compute_diversity'}
 #Shannon index
 vegan::diversity(clones$N)
 
@@ -346,31 +423,33 @@ clones %>%
 
 Now let's apply it to all the files
 
-```{r}
-list_of_samples <- lapply(samples, function(samplename){
-    print(samplename)
+```{r read_files_for_diversity}
+#Add missing lines and signs
+
+list_of_samples <- list()
+
+for(samplename in samples){
+  print(samplename)
   filename <- paste0("TRUST_",samplename, "_airr.tsv.gz")
   one_airr_file <- file.path(where_airr_files,  filename )%>%
     read_tsv()
-  
-  result <- one_airr_file |>
-  filter(grepl(pat = "TRA", v_call)) |>
-  group_by(sequence_id)|>
-  slice_max(consensus_count, n=1, with_ties=FALSE) |>
-  filter(!is.na(junction_aa))%>%
-  group_by(junction_aa)%>%
-  summarise(N=n())
-  
-  return(result)
-})
+##### HERE  
+  result <- one_airr_file 
+    filter(grepl(pat = "TRA", v_call)) 
+    group_by(sequence_id)
+    slice_max(consensus_count, n=1, with_ties=FALSE) 
 
-names(list_of_samples) <- samples
+  
+  list_of_samples[[samplename]] <- result
+}
+
+
 
 samples_df <- bind_rows(list_of_samples, .id="sample")
+
 ```
 
-
-```{r}
+```{r diversity_full}
 
 diversity_measures <- samples_df %>%
   group_by(sample)%>%
@@ -378,12 +457,16 @@ diversity_measures <- samples_df %>%
              no_of_cells=sum(N),
              shannon =vegan::diversity(N),
              evenness= shannon/log(no_of_clones))
+
 ```
-```{r}
+
+```{r plot_diversity}
+
 diversity_measures%>%
-  left_join(., sample_metadata, by=c("sample"))%>%
-  pivot_longer(cols=no_of_clones:evenness,names_to = "measure")%>%
-  ggplot(aes(x=sample, y=value, col=sample_type)) +facet_wrap(~measure, scales="free_y") +geom_point()
+left_join(., sample_metadata, by=c("sample"))%>%
+pivot_longer(cols=no_of_clones:evenness,names_to = "measure")%>%
+ggplot(aes(x=sample, y=value, col=sample_type)) +facet_wrap(~measure, scales="free_y") +geom_point()
+
 ```
 
 Can you trust these measures?
